@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.0...v1.3.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **tui:** wrap sidebar footer status in text element ([44058d9](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/44058d993dd47e388d74a48d10dcb3181323e891))
+
 # [1.3.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.2.0...v1.3.0) (2026-11-14)
 
 
