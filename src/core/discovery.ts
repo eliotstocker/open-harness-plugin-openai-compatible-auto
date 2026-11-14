@@ -28,6 +28,7 @@ export interface DiscoveredModel {
 }
 
 export interface GatewayUserInfo {
+  gatewayName?: string
   email?: string
   gcpBillingLabel?: string
   keyName?: string
@@ -291,6 +292,7 @@ export async function fetchGatewayUserInfo(
     const json = (await res.json()) as unknown
     if (!isRecord(json)) return undefined
     return {
+      gatewayName: typeof json.gateway_name === "string" && json.gateway_name.trim() ? json.gateway_name.trim() : undefined,
       email: typeof json.email === "string" && json.email.trim() ? json.email.trim() : undefined,
       gcpBillingLabel:
         typeof json.gcp_billing_label === "string" && json.gcp_billing_label.trim()

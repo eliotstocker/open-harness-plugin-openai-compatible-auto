@@ -460,6 +460,7 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
       cachedUser = userInfo
       cachedAt = Date.now()
       cachedKey = cacheKey
+      publishProviderName()
       return models
     } catch (err) {
       ctx.logger.warn(`openai-auto: /v1/models discovery failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -468,7 +469,7 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
   }
 
   const formatDisplayName = () => {
-    const base = readStr(getConfig().displayName) ?? "OpenAI-Compatible (Auto)"
+    const base = readStr(getConfig().displayName) ?? cachedUser?.gatewayName ?? "OpenAI-Compatible (Auto)"
     if (!cachedUser?.email) return base
     const spend =
       cachedUser.effectiveSpendUsd !== undefined && cachedUser.monthlyCapUsd !== undefined
@@ -559,16 +560,32 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
   }
 
   const adapter = new OpenAIAutoDshAdapter()
-  ctx.llm.registerAdapter([PROVIDER_ID], adapter)
-  ctx.llm.registerConfigurableProviders([
+  let lastPublishedName = formatDisplayName()
+  const adapterHandle = ctx.llm.registerAdapter([PROVIDER_ID], adapter)
+  const dirHandle = ctx.llm.registerConfigurableProviders([
     {
       provider: PROVIDER_ID,
-      displayName: formatDisplayName(),
+      displayName: lastPublishedName,
       settingsNs: name,
       settingsPath: [],
       declared: true,
     },
   ])
+  const publishProviderName = () => {
+    const nextName = formatDisplayName()
+    if (nextName === lastPublishedName) return
+    lastPublishedName = nextName
+    adapterHandle.replace([PROVIDER_ID])
+    dirHandle.replace([
+      {
+        provider: PROVIDER_ID,
+        displayName: nextName,
+        settingsNs: name,
+        settingsPath: [],
+        declared: true,
+      },
+    ])
+  }
   ctx.llm.registerModelDiscovery(name, async (req, signal): Promise<readonly LlmDiscoveredModel[]> => {
     const auth = req.baseURL
       ? { baseURL: req.baseURL, apiKey: req.apiKey }
@@ -667,6 +684,7 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
         getConfig = source
       },
       onChange: () => {
+        publishProviderName()
         void refreshModels(true).catch(() => {})
       },
     })

@@ -112,7 +112,9 @@ async function resolveFromCredential(
   return { baseUrl: base ? v1URL(base) : undefined, apiKey }
 }
 
-export function createOpenAIAutoPiProvider(): {
+export function createOpenAIAutoPiProvider(
+  onUserInfo?: (info: GatewayUserInfo | undefined) => void,
+): {
   provider: Provider<"openai-completions">
   getUserInfo: () => GatewayUserInfo | undefined
 } {
@@ -162,6 +164,7 @@ export function createOpenAIAutoPiProvider(): {
       )
 
       lastUserInfo = await fetchGatewayUserInfo(baseURL, tok.access, APP_HEADERS, interaction.signal)
+      onUserInfo?.(lastUserInfo)
 
       return {
         type: "oauth",
@@ -169,7 +172,11 @@ export function createOpenAIAutoPiProvider(): {
         refresh: tok.refresh,
         expires: tok.expires,
         baseURL: rootURL(baseURL),
-        metadata: { ...tok.metadata, ...(lastUserInfo?.email ? { userEmail: lastUserInfo.email } : {}) },
+        metadata: {
+          ...tok.metadata,
+          ...(lastUserInfo?.email ? { userEmail: lastUserInfo.email } : {}),
+          ...(lastUserInfo?.gatewayName ? { gatewayName: lastUserInfo.gatewayName } : {}),
+        },
       }
     },
     refresh: async (credential, signal) => {
@@ -226,6 +233,7 @@ export function createOpenAIAutoPiProvider(): {
       const key = readStr(enteredKey)
       await fetchDiscoveredModels(baseURL, key, APP_HEADERS, interaction.signal)
       lastUserInfo = await fetchGatewayUserInfo(baseURL, key, APP_HEADERS, interaction.signal)
+      onUserInfo?.(lastUserInfo)
       return {
         type: "api_key",
         ...(key ? { key } : {}),
@@ -270,6 +278,15 @@ export function createOpenAIAutoPiProvider(): {
     auth: { oauth, apiKey },
     getModels: () => models,
     refreshModels: async (context: RefreshModelsContext) => {
+      if (!lastUserInfo && context.credential?.type === "oauth") {
+        const meta = asRecord(context.credential.metadata)
+        const gatewayName = readStr(meta.gatewayName)
+        const email = readStr(meta.userEmail)
+        if (gatewayName || email) {
+          onUserInfo?.({ gatewayName, email })
+        }
+      }
+
       if (context.stored) {
         const restored = context.stored.models.filter(
           (m): m is Model<"openai-completions"> =>
@@ -292,6 +309,7 @@ export function createOpenAIAutoPiProvider(): {
       if (context.signal.aborted) return
 
       lastUserInfo = userInfo
+      onUserInfo?.(userInfo)
       const refreshed = discovered.map((m) => toPiModel(m, baseUrl))
       await context.publish({
         persist: { models: refreshed, checkedAt: Date.now() },
@@ -316,7 +334,17 @@ function formatStatus(info: GatewayUserInfo | undefined): string | undefined {
 }
 
 export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
-  const { provider, getUserInfo } = createOpenAIAutoPiProvider()
+  let registeredName = PROVIDER_NAME
+  let providerRef: Provider<"openai-completions"> | undefined
+  const updateProviderName = (info: GatewayUserInfo | undefined) => {
+    const nextName = info?.gatewayName ?? PROVIDER_NAME
+    if (!providerRef || nextName === registeredName) return
+    registeredName = nextName
+    pi.registerProvider({ ...providerRef, name: nextName })
+  }
+
+  const { provider, getUserInfo } = createOpenAIAutoPiProvider(updateProviderName)
+  providerRef = provider
   pi.registerProvider(provider)
 
   const syncStatus = async (ctx: ExtensionContext) => {
@@ -330,6 +358,7 @@ export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
       const auth = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID).catch(() => undefined)
       if (auth?.auth.baseUrl && auth.auth.apiKey) {
         info = await fetchGatewayUserInfo(auth.auth.baseUrl, auth.auth.apiKey, APP_HEADERS)
+        updateProviderName(info)
       }
     }
     ctx.ui.setStatus(PROVIDER_ID, formatStatus(info))

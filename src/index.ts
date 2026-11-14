@@ -12,6 +12,7 @@ import {
 
 const PLUGIN_ID = "openai-auto"
 const INTEGRATION_ID = "openai-auto"
+const DEFAULT_PROVIDER_NAME = "OpenAI-Compatible (Auto)"
 const LITELLM_METHOD_ID = "litellm-cli"
 const OPENAI_COMPAT_PKG = "@opencode/ai/providers/openai-compatible"
 const REFRESH_TTL_MS = 5 * 60 * 1000
@@ -60,12 +61,13 @@ function withAppHeader(headers: Record<string, string>): Record<string, string> 
 }
 
 function formatUserBadge(baseName: string, user?: GatewayUserInfo): string {
-  if (!user?.email) return baseName
+  const name = user?.gatewayName ?? baseName
+  if (!user?.email) return name
   const spend =
     user.effectiveSpendUsd !== undefined && user.monthlyCapUsd !== undefined
       ? ` · $${user.effectiveSpendUsd.toFixed(2)}/$${user.monthlyCapUsd.toFixed(0)}`
       : ""
-  return `${baseName} (${user.email}${spend})`
+  return `${name} (${user.email}${spend})`
 }
 
 function toOAuth(methodID: string, token: LiteLLMTokens): Credential.OAuth {
@@ -307,9 +309,10 @@ export default Plugin.define({
         }
         try {
           const { models, userInfo } = await discoverOpenCodeModels(p.id, baseURL, apiKey, headers)
+          const hasCustomName = Boolean(p.name && p.name !== p.id && p.name !== DEFAULT_PROVIDER_NAME)
           sources.set(p.id, {
             id: p.id,
-            name: p.name || p.id,
+            name: hasCustomName ? p.name : formatUserBadge(DEFAULT_PROVIDER_NAME, userInfo),
             baseURL: rootURL(baseURL),
             apiKey,
             headers,
@@ -338,7 +341,7 @@ export default Plugin.define({
             const { models, userInfo } = await discoverOpenCodeModels(fallbackID, fallbackURL, apiKey, headers)
             sources.set(fallbackID, {
               id: fallbackID,
-              name: formatUserBadge("OpenAI-Compatible (Auto)", userInfo),
+              name: formatUserBadge(DEFAULT_PROVIDER_NAME, userInfo),
               baseURL: rootURL(fallbackURL),
               apiKey,
               headers,
@@ -367,6 +370,7 @@ export default Plugin.define({
         const current = editor.get(src.id)
         if (current) {
           editor.update(src.id, (p) => {
+            p.name = src.name
             if (!p.package) p.package = src.pkg
             if (src.usesConnection) p.integrationID = Integration.ID.make(INTEGRATION_ID)
             p.headers = withAppHeader({ ...p.headers, ...src.headers })
