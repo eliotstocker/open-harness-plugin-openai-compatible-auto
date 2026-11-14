@@ -9,7 +9,7 @@ import {
   type RefreshModelsContext,
   type ThinkingLevelMap,
 } from "@earendil-works/pi-ai"
-import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy"
+import { openAICompletionsApi } from "@earendil-works/pi-ai/compat"
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { refreshLiteLLMTokens, runLiteLLMLogin } from "./core/auth.js"
 import {
