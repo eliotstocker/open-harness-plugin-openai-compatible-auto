@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.1.0...v1.1.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* import openAICompletionsApi from @earendil-works/pi-ai/compat ([b0058a3](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/b0058a31980f36a2189628a91cf2fe9dd3d5825c))
+
 # [1.1.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.0.1...v1.1.0) (2026-11-14)
 
 
