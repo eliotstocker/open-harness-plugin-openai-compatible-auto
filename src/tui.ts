@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui"
+import { createElement, insert } from "@opentui/solid"
 import { createSignal, onCleanup } from "solid-js"
 import { formatUserStatusText, readGatewayStatus } from "./core/state.js"
 
@@ -25,7 +26,9 @@ export const plugin = Plugin.define({
       render: () => {
         const text = formatUserStatusText(status())
         if (!text) return null
-        return text
+        const el = createElement("text")
+        insert(el, () => formatUserStatusText(status()) ?? "")
+        return el as any
       },
     })
   },
