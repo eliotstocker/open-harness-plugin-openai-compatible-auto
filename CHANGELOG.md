@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.0.1...v1.1.0) (2026-11-14)
+
+
+### Features
+
+* use gateway_name from /v1/me for provider name ([047657d](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/047657da02e3d44a1f9c73a73833b09d25ea9e62))
+
 ## [1.0.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.0.0...v1.0.1) (2026-11-14)
 
 
