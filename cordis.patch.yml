@@ -1,0 +1,3 @@
+- insert:
+    - id: openai-auto
+      name: '@eliotstocker/open-harness-plugin-openai-compatible-auto/dsh'
