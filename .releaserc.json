@@ -9,7 +9,7 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "npm run typecheck && npm run build",
-        "publishCmd": "printf '//npm.pkg.github.com/:_authToken=%s\\n' \"$GITHUB_TOKEN\" > \"${RUNNER_TEMP:-/tmp}/.npmrc-gh\" && npm publish --registry=https://npm.pkg.github.com --provenance=false --userconfig \"${RUNNER_TEMP:-/tmp}/.npmrc-gh\" && rm -f \"${RUNNER_TEMP:-/tmp}/.npmrc-gh\""
+        "publishCmd": "printf '//npm.pkg.github.com/:_authToken=%s\\n' \"$GITHUB_TOKEN\" > \"$RUNNER_TEMP/.npmrc-gh\" && npm publish --registry=https://npm.pkg.github.com --provenance=false --userconfig \"$RUNNER_TEMP/.npmrc-gh\" && rm -f \"$RUNNER_TEMP/.npmrc-gh\""
       }
     ],
     [
