@@ -20,6 +20,7 @@ import {
   type DiscoveredModel,
   type GatewayUserInfo,
 } from "./core/discovery.js"
+import { formatUserStatusText } from "./core/state.js"
 
 const PROVIDER_ID = "openai-auto"
 const PROVIDER_NAME = "OpenAI-Compatible (Auto)"
@@ -325,14 +326,6 @@ export function createOpenAIAutoPiProvider(
   return { provider, getUserInfo: () => lastUserInfo }
 }
 
-function formatStatus(info: GatewayUserInfo | undefined): string | undefined {
-  if (!info?.email) return undefined
-  if (info.effectiveSpendUsd !== undefined && info.monthlyCapUsd !== undefined) {
-    return `${info.email} ($${info.effectiveSpendUsd.toFixed(2)}/$${info.monthlyCapUsd.toFixed(0)})`
-  }
-  return info.email
-}
-
 export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
   let registeredName = PROVIDER_NAME
   let providerRef: Provider<"openai-completions"> | undefined
@@ -347,23 +340,25 @@ export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
   providerRef = provider
   pi.registerProvider(provider)
 
-  const syncStatus = async (ctx: ExtensionContext) => {
+  const syncStatus = async (ctx: ExtensionContext, forceRefresh = false) => {
     if (!ctx.hasUI) return
     if (ctx.model?.provider !== PROVIDER_ID) {
       ctx.ui.setStatus(PROVIDER_ID, undefined)
       return
     }
     let info = getUserInfo()
-    if (!info) {
+    if (!info || forceRefresh) {
       const auth = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID).catch(() => undefined)
       if (auth?.auth.baseUrl && auth.auth.apiKey) {
         info = await fetchGatewayUserInfo(auth.auth.baseUrl, auth.auth.apiKey, APP_HEADERS)
         updateProviderName(info)
       }
     }
-    ctx.ui.setStatus(PROVIDER_ID, formatStatus(info))
+    const text = formatUserStatusText(info)
+    ctx.ui.setStatus(PROVIDER_ID, text || undefined)
   }
 
   pi.on("session_start", (_event, ctx) => void syncStatus(ctx))
   pi.on("model_select", (_event, ctx) => void syncStatus(ctx))
+  pi.on("turn_end", (_event, ctx) => void syncStatus(ctx, true))
 }

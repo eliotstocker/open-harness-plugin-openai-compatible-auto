@@ -34,6 +34,13 @@
       "types": "./dist/dsh-client.d.ts",
       "default": "./dist/client.js"
     },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js"
+    },
+    "./gui-experimental": {
+      "default": "./dist/gui-experimental.cjs"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -80,7 +87,8 @@
     "@deepseek-ai/dsh-settings": "*",
     "@deepseek-ai/schemastery": "*",
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "solid-js": ">=1.9.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -109,6 +117,9 @@
     },
     "@earendil-works/pi-coding-agent": {
       "optional": true
+    },
+    "solid-js": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -126,6 +137,7 @@
     "@semantic-release/git": "^11.0.1",
     "@types/node": "^22.0.0",
     "semantic-release": "^25.0.9",
+    "solid-js": "^1.9.19",
     "typescript": "^5.7.0"
   }
 }

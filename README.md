@@ -44,10 +44,14 @@ pi -e npm:@eliotstocker/open-harness-plugin-openai-compatible-auto
 
 Then run `/login openai-auto` (supports **LiteLLM CLI Code Flow (Browser)** and **OpenAI-Compatible API Key**), and `/model` to select auto-discovered models.
 
-### DeepSeek Harness (`@deepseek-ai/dsh`)
-Add to a DSH profile (e.g. `web`, `acp`, `headless`):
+### DeepSeek Harness (`@deepseek-ai/dsh` / `dsh-tui`)
+Add to your DSH profile (e.g. `dsh-tui`, `web`, `acp`, `headless`):
 
 ```bash
+# For dsh-tui (@deepseek-harness-tui/dsh-tui / dst)
+dsh plugin --profile dsh-tui add @eliotstocker/open-harness-plugin-openai-compatible-auto
+
+# For Web UI
 dsh plugin --profile web add @eliotstocker/open-harness-plugin-openai-compatible-auto
 ```
 

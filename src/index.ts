@@ -9,6 +9,7 @@ import {
   v1URL,
   type GatewayUserInfo,
 } from "./core/discovery.js"
+import { saveGatewayStatus } from "./core/state.js"
 
 const PLUGIN_ID = "openai-auto"
 const INTEGRATION_ID = "openai-auto"
@@ -60,15 +61,7 @@ function withAppHeader(headers: Record<string, string>): Record<string, string> 
   return hasApp ? headers : { "X-Prov-Application": "opencode", ...headers }
 }
 
-function formatUserBadge(baseName: string, user?: GatewayUserInfo): string {
-  const name = user?.gatewayName ?? baseName
-  if (!user?.email) return name
-  const spend =
-    user.effectiveSpendUsd !== undefined && user.monthlyCapUsd !== undefined
-      ? ` · $${user.effectiveSpendUsd.toFixed(2)}/$${user.monthlyCapUsd.toFixed(0)}`
-      : ""
-  return `${name} (${user.email}${spend})`
-}
+
 
 function toOAuth(methodID: string, token: LiteLLMTokens): Credential.OAuth {
   return {
@@ -312,7 +305,7 @@ export default Plugin.define({
           const hasCustomName = Boolean(p.name && p.name !== p.id && p.name !== DEFAULT_PROVIDER_NAME)
           sources.set(p.id, {
             id: p.id,
-            name: hasCustomName ? p.name : formatUserBadge(DEFAULT_PROVIDER_NAME, userInfo),
+            name: hasCustomName ? p.name : (userInfo?.gatewayName ?? DEFAULT_PROVIDER_NAME),
             baseURL: rootURL(baseURL),
             apiKey,
             headers,
@@ -341,7 +334,7 @@ export default Plugin.define({
             const { models, userInfo } = await discoverOpenCodeModels(fallbackID, fallbackURL, apiKey, headers)
             sources.set(fallbackID, {
               id: fallbackID,
-              name: formatUserBadge(DEFAULT_PROVIDER_NAME, userInfo),
+              name: userInfo?.gatewayName ?? DEFAULT_PROVIDER_NAME,
               baseURL: rootURL(fallbackURL),
               apiKey,
               headers,
@@ -358,6 +351,14 @@ export default Plugin.define({
             console.warn(`[${PLUGIN_ID}] Model discovery failed for "${fallbackID}": ${err instanceof Error ? err.message : String(err)}`)
           }
         }
+      }
+
+      const activeUserInfo = Array.from(sources.values()).find((s) => s.userInfo)?.userInfo
+      saveGatewayStatus(activeUserInfo)
+      if (activeUserInfo) {
+        try {
+          await ctx.storage.set("gateway_user", activeUserInfo as any)
+        } catch {}
       }
 
       return changed

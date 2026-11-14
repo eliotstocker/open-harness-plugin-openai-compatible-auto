@@ -479,13 +479,7 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
   }
 
   const formatDisplayName = () => {
-    const base = readStr(getConfig().displayName) ?? cachedUser?.gatewayName ?? "OpenAI-Compatible (Auto)"
-    if (!cachedUser?.email) return base
-    const spend =
-      cachedUser.effectiveSpendUsd !== undefined && cachedUser.monthlyCapUsd !== undefined
-        ? ` ($${cachedUser.effectiveSpendUsd.toFixed(2)}/$${cachedUser.monthlyCapUsd.toFixed(0)})`
-        : ""
-    return `${base} · ${cachedUser.email}${spend}`
+    return readStr(getConfig().displayName) ?? cachedUser?.gatewayName ?? "OpenAI-Compatible (Auto)"
   }
 
   class OpenAIAutoDshAdapter extends LlmAdapter {
