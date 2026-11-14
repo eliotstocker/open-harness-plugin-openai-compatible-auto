@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.2.0...v1.3.0) (2026-11-14)
+
+
+### Features
+
+* show user cost and cap in OpenCode and Pi status bars and clean provider names ([c6b133a](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/c6b133a5031cbe126cf795e817e53564301f3612))
+
 # [1.2.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.1.1...v1.2.0) (2026-11-14)
 
 
