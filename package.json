@@ -1,6 +1,6 @@
 {
   "name": "@eliotstocker/open-harness-plugin-openai-compatible-auto",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Multi-host plugin (OpenCode V2, Pi, DeepSeek Harness) for OpenAI-compatible endpoints with /models auto-detection and LiteLLM browser CLI code flow sign-in",
   "license": "MIT",
   "repository": {
