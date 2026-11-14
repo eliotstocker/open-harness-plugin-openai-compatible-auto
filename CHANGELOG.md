@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.1.1...v1.2.0) (2026-11-14)
+
+
+### Features
+
+* add DSH web UI sign-in card ([d410916](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/d41091627855a5bd92c336530a3b250711afcc32))
+
 ## [1.1.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.1.0...v1.1.1) (2026-11-14)
 
 
