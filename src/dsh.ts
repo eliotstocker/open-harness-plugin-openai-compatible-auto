@@ -21,7 +21,10 @@ import {
   type StreamChunk,
   type TokenUsage,
 } from "@deepseek-ai/dsh-llm"
-import "@deepseek-ai/dsh-authorization"
+import {
+  AuthorizationDeclinedError,
+  type AuthorizationNotice,
+} from "@deepseek-ai/dsh-authorization"
 import "@deepseek-ai/dsh-settings"
 import z from "@deepseek-ai/schemastery"
 import {
@@ -444,6 +447,13 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
     try {
       auth = await resolveEndpointAndAuth(signal)
     } catch {
+      if (force) {
+        cachedModels = []
+        cachedUser = undefined
+        cachedAt = 0
+        cachedKey = ""
+        publishProviderName()
+      }
       return cachedModels
     }
     const cacheKey = `${auth.baseURL}:${auth.apiKey ?? ""}`
@@ -599,6 +609,57 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
     }))
   })
 
+  const performLogin = async (
+    credentials: Context["credentials"],
+    opts: {
+      method: "litellm-cli" | "api-key"
+      baseURL: string
+      team?: string
+      apiKey?: string
+      signal?: AbortSignal
+      onNotify: (notice: AuthorizationNotice) => void
+      onPrompt: (message: string, placeholder?: string) => Promise<string>
+    },
+  ): Promise<void> => {
+    if (opts.method === "api-key") {
+      await fetchDiscoveredModels(opts.baseURL, opts.apiKey, requestHeaders(getConfig().headers), opts.signal)
+      await credentials.modifyRecord(RECORD_KEY, async () => ({
+        kind: "grant",
+        payload: {
+          access: opts.apiKey ?? "local",
+          refresh: "",
+          expires: NEVER_EXPIRES,
+          baseURL: rootURL(opts.baseURL),
+        } satisfies StoredGrant,
+      }))
+      await refreshModels(true).catch(() => {})
+      return
+    }
+
+    const tok = await runLiteLLMLogin(
+      opts.baseURL,
+      { providerID: PROVIDER_ID, team: opts.team, headers: requestHeaders(getConfig().headers), clientName: "dsh" },
+      {
+        signal: opts.signal,
+        onAuth: (url, instructions) => {
+          opts.onNotify({ message: instructions, url })
+        },
+        onPrompt: opts.onPrompt,
+      },
+    )
+    await credentials.modifyRecord(RECORD_KEY, async () => ({
+      kind: "grant",
+      payload: {
+        access: tok.access,
+        refresh: tok.refresh,
+        expires: tok.expires,
+        baseURL: rootURL(opts.baseURL),
+        metadata: tok.metadata,
+      } satisfies StoredGrant,
+    }))
+    await refreshModels(true).catch(() => {})
+  }
+
   ctx.inject(["authorization", "credentials"], (authCtx) => {
     authCtx.authorization.registerFlow({
       key: RECORD_KEY,
@@ -626,17 +687,14 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
               placeholder: "sk-...",
             }),
           )
-          await fetchDiscoveredModels(baseURL, apiKey, requestHeaders(getConfig().headers), session.signal)
-          await authCtx.credentials.modifyRecord(RECORD_KEY, async () => ({
-            kind: "grant",
-            payload: {
-              access: apiKey ?? "local",
-              refresh: "",
-              expires: NEVER_EXPIRES,
-              baseURL: rootURL(baseURL),
-            } satisfies StoredGrant,
-          }))
-          void refreshModels(true).catch(() => {})
+          await performLogin(authCtx.credentials, {
+            method: "api-key",
+            baseURL,
+            apiKey,
+            signal: session.signal,
+            onNotify: (n) => session.notify(n),
+            onPrompt: (message, placeholder) => session.prompt({ kind: "secret", message, placeholder }),
+          })
           return
         }
 
@@ -647,29 +705,14 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
             placeholder: "Leave blank if not required",
           }),
         )
-        const tok = await runLiteLLMLogin(
+        await performLogin(authCtx.credentials, {
+          method: "litellm-cli",
           baseURL,
-          { providerID: PROVIDER_ID, team, headers: requestHeaders(getConfig().headers), clientName: "dsh" },
-          {
-            signal: session.signal,
-            onAuth: (url, instructions) => {
-              session.notify({ message: instructions, url })
-            },
-            onPrompt: (message, placeholder) =>
-              session.prompt({ kind: "secret", message, placeholder }),
-          },
-        )
-        await authCtx.credentials.modifyRecord(RECORD_KEY, async () => ({
-          kind: "grant",
-          payload: {
-            access: tok.access,
-            refresh: tok.refresh,
-            expires: tok.expires,
-            baseURL: rootURL(baseURL),
-            metadata: tok.metadata,
-          } satisfies StoredGrant,
-        }))
-        void refreshModels(true).catch(() => {})
+          team,
+          signal: session.signal,
+          onNotify: (n) => session.notify(n),
+          onPrompt: (message, placeholder) => session.prompt({ kind: "secret", message, placeholder }),
+        })
       },
     })
   })
@@ -688,5 +731,342 @@ export function apply(ctx: Context, initialConfig: OpenAIAutoDshConfig = {}): vo
         void refreshModels(true).catch(() => {})
       },
     })
+  })
+
+  interface ConnectionFetchHandle {
+    fetch: {
+      register(route: {
+        path: string
+        methods: readonly ("GET" | "HEAD" | "POST")[]
+        requestBody: "buffered" | "streaming"
+        fetch: (request: Request) => Promise<Response>
+      }): () => Promise<void>
+    }
+  }
+
+  interface PendingPromptState {
+    id: string
+    kind: "text" | "secret"
+    message: string
+    placeholder?: string
+    resolve: (value: string) => void
+    reject: (error: Error) => void
+  }
+
+  interface WebLoginState {
+    inFlight: boolean
+    method: "litellm-cli" | "api-key"
+    baseURL: string
+    notice: AuthorizationNotice | null
+    prompt: { id: string; kind: "text" | "secret"; message: string; placeholder?: string } | null
+    error: string | null
+    outcome: "authorized" | "cancelled" | "failed" | null
+    controller: AbortController | null
+    pendingPrompt: PendingPromptState | null
+    wakeWaiters: Set<() => void>
+  }
+
+  let webLogin: WebLoginState | null = null
+  let promptCounter = 0
+
+  const notifyWebLoginWaiters = () => {
+    if (!webLogin) return
+    for (const wake of [...webLogin.wakeWaiters]) wake()
+    webLogin.wakeWaiters.clear()
+  }
+
+  const clearPendingPrompt = (state: WebLoginState, err?: Error) => {
+    if (!state.pendingPrompt) return
+    const pending = state.pendingPrompt
+    state.pendingPrompt = null
+    state.prompt = null
+    if (err) pending.reject(err)
+  }
+
+  const readWebStatus = async () => {
+    const cfg = getConfig()
+    const credentials = ctx.get("credentials")
+    const rec = credentials ? await credentials.readRecord(RECORD_KEY).catch(() => undefined) : undefined
+    const grant = rec?.kind === "grant" ? parseGrant(rec.payload) : undefined
+    const cfgUrl =
+      readStr(cfg.baseURL) ?? readStr(process.env.OPENAI_AUTO_BASE_URL) ?? readStr(process.env.LITELLM_BASE_URL)
+
+    const effectiveUrl = grant?.baseURL ?? (cfgUrl ? rootURL(cfgUrl) : "")
+    const hasMetadata = Boolean(grant?.metadata && Object.keys(grant.metadata).length > 0)
+    const authKind = grant ? (hasMetadata ? "oauth" : "api-key") : cfgUrl ? "config" : "none"
+
+    if (effectiveUrl && cachedAt === 0) {
+      void refreshModels(false).catch(() => {})
+    }
+
+    return {
+      baseURL: effectiveUrl,
+      configuredBaseURL: cfgUrl ? rootURL(cfgUrl) : "",
+      signedIn: Boolean(grant),
+      authKind,
+      user: cachedUser
+        ? {
+            ...(cachedUser.email ? { email: cachedUser.email } : {}),
+            ...(cachedUser.gatewayName ? { gatewayName: cachedUser.gatewayName } : {}),
+            ...(cachedUser.effectiveSpendUsd !== undefined
+              ? { effectiveSpendUsd: cachedUser.effectiveSpendUsd }
+              : {}),
+            ...(cachedUser.monthlyCapUsd !== undefined ? { monthlyCapUsd: cachedUser.monthlyCapUsd } : {}),
+          }
+        : null,
+      modelCount: cachedModels.length,
+      login: webLogin
+        ? {
+            inFlight: webLogin.inFlight,
+            method: webLogin.method,
+            baseURL: webLogin.baseURL,
+            notice: webLogin.notice,
+            prompt: webLogin.prompt,
+            error: webLogin.error,
+            outcome: webLogin.outcome,
+          }
+        : null,
+    }
+  }
+
+  ctx.inject(["connection" as never], (rawConnCtx) => {
+    const connCtx = rawConnCtx as Context & { connection: ConnectionFetchHandle }
+
+    connCtx.effect(() => () => {
+      if (webLogin?.inFlight) {
+        webLogin.controller?.abort()
+        clearPendingPrompt(webLogin, new AuthorizationDeclinedError("Connection closed"))
+      }
+    })
+
+    const registerRpc = (
+      endpoint: string,
+      handler: (payload: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>,
+    ) => {
+      connCtx.connection.fetch.register({
+        path: `/api/${endpoint}`,
+        methods: ["POST"],
+        requestBody: "buffered",
+        fetch: async (request) => {
+          let body: unknown
+          try {
+            body = await request.json()
+          } catch {
+            return new Response("body is not JSON", { status: 400 })
+          }
+          const env = asRecord(body)
+          const rpcId = typeof env.rpcId === "string" ? env.rpcId : "invalid-request"
+          if (env.type !== "client-request" || env.method !== endpoint) {
+            return Response.json({
+              type: "server-response",
+              rpcId,
+              result: {
+                ok: false,
+                error: { code: "gateway/bad-request", message: "Invalid RPC request envelope", details: {} },
+              },
+            })
+          }
+          try {
+            const value = await handler(asRecord(env.payload), request.signal)
+            return Response.json({ type: "server-response", rpcId, result: { ok: true, value } })
+          } catch (err) {
+            const code = err instanceof LlmError ? err.code : "OPENAI_AUTO_RPC_ERROR"
+            const message = err instanceof Error ? err.message : String(err)
+            return Response.json({
+              type: "server-response",
+              rpcId,
+              result: { ok: false, error: { code, message, details: {} } },
+            })
+          }
+        },
+      })
+    }
+
+    registerRpc("openai-auto.status", async () => readWebStatus())
+
+    registerRpc("openai-auto.refresh", async (_payload, signal) => {
+      await refreshModels(true, signal)
+      return readWebStatus()
+    })
+
+    registerRpc("openai-auto.login", async (payload) => {
+      const credentials = ctx.get("credentials")
+      if (!credentials) {
+        throw new LlmError("Credentials service is unavailable", "UNAVAILABLE")
+      }
+      const rawUrl = readStr(payload.baseURL)
+      if (!rawUrl) throw new LlmError("Server URL is required", "INVALID_ARGS")
+      let normalizedUrl: string
+      try {
+        normalizedUrl = rootURL(new URL(rawUrl).href)
+      } catch {
+        throw new LlmError(`Invalid Server URL: ${rawUrl}`, "INVALID_ARGS")
+      }
+
+      if (webLogin?.inFlight) {
+        throw new LlmError("A sign-in attempt is already in progress", "ALREADY_IN_FLIGHT")
+      }
+
+      const method = payload.method === "api-key" ? "api-key" : "litellm-cli"
+      const team = readStr(payload.team)
+      const apiKey = readStr(payload.apiKey)
+      const controller = new AbortController()
+
+      const state: WebLoginState = {
+        inFlight: true,
+        method,
+        baseURL: normalizedUrl,
+        notice: null,
+        prompt: null,
+        error: null,
+        outcome: null,
+        controller,
+        pendingPrompt: null,
+        wakeWaiters: new Set(),
+      }
+      webLogin = state
+
+      const firstSignal = new Promise<void>((resolve) => {
+        state.wakeWaiters.add(resolve)
+        setTimeout(resolve, 1_500)
+      })
+
+      void (async () => {
+        try {
+          await performLogin(credentials, {
+            method,
+            baseURL: normalizedUrl,
+            team,
+            apiKey,
+            signal: controller.signal,
+            onNotify(notice) {
+              state.notice = notice
+              notifyWebLoginWaiters()
+            },
+            async onPrompt(message, placeholder) {
+              const id = `prompt-${++promptCounter}`
+              return await new Promise<string>((resolve, reject) => {
+                const onPromptAbort = () => {
+                  if (state.pendingPrompt?.id === id) {
+                    state.pendingPrompt = null
+                    state.prompt = null
+                  }
+                  reject(new Error("Prompt cancelled"))
+                }
+                controller.signal.addEventListener("abort", onPromptAbort, { once: true })
+                state.pendingPrompt = {
+                  id,
+                  kind: "secret",
+                  message,
+                  placeholder,
+                  resolve: (v) => {
+                    controller.signal.removeEventListener("abort", onPromptAbort)
+                    resolve(v)
+                  },
+                  reject: (e) => {
+                    controller.signal.removeEventListener("abort", onPromptAbort)
+                    reject(e)
+                  },
+                }
+                state.prompt = {
+                  id,
+                  kind: "secret",
+                  message,
+                  ...(placeholder ? { placeholder } : {}),
+                }
+                notifyWebLoginWaiters()
+              })
+            },
+          })
+          state.outcome = "authorized"
+        } catch (err) {
+          if (controller.signal.aborted || err instanceof AuthorizationDeclinedError) {
+            state.outcome = "cancelled"
+          } else {
+            state.outcome = "failed"
+            state.error = err instanceof Error ? err.message : String(err)
+          }
+        } finally {
+          clearPendingPrompt(state, new AuthorizationDeclinedError("Sign-in ended"))
+          state.inFlight = false
+          state.controller = null
+          notifyWebLoginWaiters()
+        }
+      })()
+
+      await firstSignal
+      return readWebStatus()
+    })
+
+    registerRpc("openai-auto.respond", async (payload) => {
+      if (!webLogin?.inFlight || !webLogin.pendingPrompt) {
+        throw new LlmError("No active prompt to answer", "NO_PROMPT")
+      }
+      const id = readStr(payload.id)
+      if (!id || id !== webLogin.pendingPrompt.id) {
+        throw new LlmError("Prompt is no longer active", "STALE_PROMPT")
+      }
+      const pending = webLogin.pendingPrompt
+      webLogin.pendingPrompt = null
+      webLogin.prompt = null
+      if (payload.cancel === true) {
+        pending.reject(new AuthorizationDeclinedError("Cancelled by user"))
+      } else {
+        pending.resolve(typeof payload.value === "string" ? payload.value : "")
+      }
+      await new Promise((r) => setTimeout(r, 150))
+      return readWebStatus()
+    })
+
+    registerRpc("openai-auto.cancel", async () => {
+      const auth = ctx.get("authorization")
+      if (webLogin?.inFlight) {
+        clearPendingPrompt(webLogin, new AuthorizationDeclinedError("Cancelled by user"))
+        webLogin.controller?.abort()
+        auth?.cancel(RECORD_KEY)
+      }
+      await new Promise((r) => setTimeout(r, 50))
+      return readWebStatus()
+    })
+
+    registerRpc("openai-auto.logout", async () => {
+      const credentials = ctx.get("credentials")
+      if (credentials) {
+        await credentials.deleteRecord(RECORD_KEY)
+      }
+      webLogin = null
+      cachedModels = []
+      cachedUser = undefined
+      cachedAt = 0
+      cachedKey = ""
+      publishProviderName()
+      await refreshModels(true).catch(() => {})
+      return readWebStatus()
+    })
+  })
+
+  ctx.inject(["clientModules" as never], async (cmCtx) => {
+    const loader = (ctx as unknown as { loader?: { constructor?: unknown } }).loader
+    const EntryTreeCtor = loader ? (Object.getPrototypeOf(loader.constructor) as new (c: Context) => {
+      ctx: Context & { baseUrl?: string }
+      root: { update(entries: unknown[]): Promise<void>; stop(): Promise<void> }
+      write(): void
+    }) : undefined
+    const entry = (ctx.fiber as unknown as { entry?: { subtree?: unknown } }).entry
+    if (!EntryTreeCtor || !entry) return
+
+    const tree = new EntryTreeCtor(ctx)
+    tree.ctx.baseUrl ??= import.meta.url
+    tree.write = () => {}
+    entry.subtree = tree
+
+    cmCtx.effect(() => () => {
+      void tree.root.stop()
+      if (entry.subtree === tree) entry.subtree = undefined
+    })
+
+    const clientHostUrl = new URL("./dsh-client-host.js", import.meta.url).href
+    await tree.root.update([{ id: "openai-auto-client", name: clientHostUrl }])
+    await Promise.resolve()
   })
 }

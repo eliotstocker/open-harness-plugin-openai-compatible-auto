@@ -30,6 +30,10 @@
       "types": "./dist/dsh.d.ts",
       "import": "./dist/dsh.js"
     },
+    "./client": {
+      "types": "./dist/dsh-client.d.ts",
+      "default": "./dist/client.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -52,10 +56,16 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings-models"
+      ]
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/build-client.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
