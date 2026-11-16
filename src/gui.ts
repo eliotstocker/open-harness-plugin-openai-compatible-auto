@@ -11,10 +11,21 @@ const GatewayUserStatusSchema = Schema.Struct({
   monthlyCapUsd: Schema.optional(Schema.Number),
   effectiveSpendUsd: Schema.optional(Schema.Number),
   remainingUsd: Schema.optional(Schema.Number),
+  usageUrl: Schema.optional(Schema.String),
   updatedAt: Schema.optional(Schema.Number),
 })
 
 type GatewayUserStatus = typeof GatewayUserStatusSchema.Type
+
+function safeHttpUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined
+  try {
+    const parsed = new URL(raw.trim())
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const UserStatusIpc = Ipc.define({
   id: "openai-auto.user-status",
@@ -48,7 +59,7 @@ function readGatewayStatus(): GatewayUserStatus | null {
 function hasStatusChanged(prev: GatewayUserStatus | null, next: GatewayUserStatus | null): boolean {
   if (prev === next) return false
   if (!prev || !next) return true
-  return prev.updatedAt !== next.updatedAt
+  return prev.updatedAt !== next.updatedAt || prev.usageUrl !== next.usageUrl
 }
 
 export const plugin = Plugin.define({
@@ -99,8 +110,33 @@ export const plugin = Plugin.define({
         const right = document.createElement("span")
         right.style.display = "inline-flex"
         right.style.alignItems = "center"
-        right.style.gap = "6px"
+        right.style.gap = "8px"
 
+        const spend = document.createElement("span")
+
+        let currentUsageUrl: string | undefined
+        const usageLink = document.createElement("a")
+        usageLink.textContent = "Usage ↗"
+        usageLink.style.display = "none"
+        usageLink.style.color = "inherit"
+        usageLink.style.textDecoration = "none"
+        usageLink.style.cursor = "pointer"
+        usageLink.style.opacity = "0.85"
+        usageLink.addEventListener("mouseenter", () => {
+          usageLink.style.textDecoration = "underline"
+          usageLink.style.opacity = "1"
+        })
+        usageLink.addEventListener("mouseleave", () => {
+          usageLink.style.textDecoration = "none"
+          usageLink.style.opacity = "0.85"
+        })
+        usageLink.addEventListener("click", (e) => {
+          e.preventDefault()
+          if (currentUsageUrl) ctx.system.openExternal(currentUsageUrl)
+        })
+
+        right.appendChild(spend)
+        right.appendChild(usageLink)
         root.appendChild(left)
         root.appendChild(right)
 
@@ -124,7 +160,17 @@ export const plugin = Plugin.define({
           } else if (s.effectiveSpendUsd !== undefined) {
             rightParts.push(`Spend: $${s.effectiveSpendUsd.toFixed(2)}`)
           }
-          right.textContent = rightParts.join(" ")
+          spend.textContent = rightParts.join(" ")
+
+          currentUsageUrl = safeHttpUrl(s.usageUrl)
+          if (currentUsageUrl) {
+            usageLink.href = currentUsageUrl
+            usageLink.title = currentUsageUrl
+            usageLink.style.display = "inline"
+          } else {
+            usageLink.removeAttribute("href")
+            usageLink.style.display = "none"
+          }
         })
 
         return root

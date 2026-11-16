@@ -38,6 +38,24 @@ export interface GatewayUserInfo {
   effectiveSpendUsd?: number
   remainingUsd?: number
   allowed?: boolean
+  usageUrl?: string
+}
+
+function safeHttpUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined
+  try {
+    const parsed = new URL(raw.trim())
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function resolveUsageUrl(baseURL: string, me?: Record<string, unknown>): string | undefined {
+  const explicitUsage = safeHttpUrl(me?.usage_url)
+  if (explicitUsage) return explicitUsage
+  const portalBase = safeHttpUrl(me?.portal_url) ?? safeHttpUrl(me?.base_url) ?? safeHttpUrl(baseURL)
+  return portalBase ? `${rootURL(portalBase)}/portal#usage` : undefined
 }
 
 /** Strip trailing slashes and optional `/v1` suffix so endpoints resolve consistently. */
@@ -305,6 +323,7 @@ export async function fetchGatewayUserInfo(
       effectiveSpendUsd: nonNegNum(json.effective_spend_usd),
       remainingUsd: nonNegNum(json.remaining_usd),
       allowed: typeof json.allowed === "boolean" ? json.allowed : undefined,
+      usageUrl: resolveUsageUrl(baseURL, json),
     }
   } catch {
     return undefined

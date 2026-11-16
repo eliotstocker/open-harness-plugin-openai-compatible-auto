@@ -72,3 +72,13 @@ export function formatUserStatusText(status?: GatewayUserInfo): string {
 
   return parts.join(" · ")
 }
+
+export function safeHttpUrl(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined
+  try {
+    const parsed = new URL(raw.trim())
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : undefined
+  } catch {
+    return undefined
+  }
+}
