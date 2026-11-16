@@ -1,17 +1,26 @@
 import { existsSync, readFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
-import { Plugin, Slot } from "@opencode/plugin/gui"
-import { createEffect, createSignal, onCleanup } from "solid-js"
+import { Ipc, Plugin, Slot } from "@opencode/plugin/gui"
+import { Schema } from "effect"
+import { createEffect } from "solid-js"
 
-interface GatewayUserStatus {
-  email?: string
-  gatewayName?: string
-  monthlyCapUsd?: number
-  effectiveSpendUsd?: number
-  remainingUsd?: number
-  updatedAt?: number
-}
+const GatewayUserStatusSchema = Schema.Struct({
+  email: Schema.optional(Schema.String),
+  gatewayName: Schema.optional(Schema.String),
+  monthlyCapUsd: Schema.optional(Schema.Number),
+  effectiveSpendUsd: Schema.optional(Schema.Number),
+  remainingUsd: Schema.optional(Schema.Number),
+  updatedAt: Schema.optional(Schema.Number),
+})
+
+type GatewayUserStatus = typeof GatewayUserStatusSchema.Type
+
+const UserStatusIpc = Ipc.define({
+  id: "openai-auto.user-status",
+  state: Schema.NullOr(GatewayUserStatusSchema),
+  methods: {},
+})
 
 function getStatusPath(): string {
   const openCodeDir = join(homedir(), ".opencode")
@@ -21,37 +30,49 @@ function getStatusPath(): string {
   return join(tmpdir(), "opencode-openai-auto-user.json")
 }
 
-function readGatewayStatus(): GatewayUserStatus | undefined {
+function readGatewayStatus(): GatewayUserStatus | null {
   try {
     const p = getStatusPath()
-    if (!existsSync(p)) return undefined
+    if (!existsSync(p)) return null
     const raw = readFileSync(p, "utf8")
     const parsed = JSON.parse(raw) as GatewayUserStatus
     if (!parsed || (!parsed.email && parsed.effectiveSpendUsd === undefined && !parsed.gatewayName)) {
-      return undefined
+      return null
     }
     return parsed
   } catch {
-    return undefined
+    return null
   }
 }
 
+function hasStatusChanged(prev: GatewayUserStatus | null, next: GatewayUserStatus | null): boolean {
+  if (prev === next) return false
+  if (!prev || !next) return true
+  return prev.updatedAt !== next.updatedAt
+}
+
 export const plugin = Plugin.define({
-  setup(ctx) {
-    const [status, setStatus] = createSignal(readGatewayStatus())
+  main(ctx) {
+    let current = readGatewayStatus()
+
+    const provider = ctx.provide(UserStatusIpc, {
+      state: () => current,
+    })
 
     const interval = setInterval(() => {
       const next = readGatewayStatus()
-      setStatus((prev) => {
-        if (!prev && !next) return prev
-        if (prev?.updatedAt === next?.updatedAt) return prev
-        return next
-      })
+      if (!hasStatusChanged(current, next)) return
+      current = next
+      provider.changed()
     }, 4000)
 
-    onCleanup(() => {
+    return () => {
       clearInterval(interval)
-    })
+      provider.dispose()
+    }
+  },
+  setup(ctx) {
+    const userStatus = ctx.main(UserStatusIpc)
 
     ctx.add(Slot, {
       at: "window.bottom",
@@ -84,7 +105,7 @@ export const plugin = Plugin.define({
         root.appendChild(right)
 
         createEffect(() => {
-          const s = status()
+          const s = userStatus.state()
           if (!s || (!s.email && s.effectiveSpendUsd === undefined && !s.gatewayName)) {
             root.style.display = "none"
             return
