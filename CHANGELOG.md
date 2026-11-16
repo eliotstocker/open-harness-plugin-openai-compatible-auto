@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.1...v1.3.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **gui:** read gateway status in main process and bridge via IPC ([9ee7eaa](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/9ee7eaaf5064d2d2aa8a3e056281500056c6bf4c))
+
 ## [1.3.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.0...v1.3.1) (2026-11-14)
 
 
