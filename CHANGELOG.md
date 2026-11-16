@@ -1,3 +1,10 @@
+## [1.3.4](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.3...v1.3.4) (2026-11-16)
+
+
+### Bug Fixes
+
+* gate portal usage link on usage metrics and add Pi link/command ([202b949](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/202b9494800125d5cf67f586723df0246730be06))
+
 ## [1.3.3](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.2...v1.3.3) (2026-11-16)
 
 
