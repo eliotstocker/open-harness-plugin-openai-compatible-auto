@@ -51,10 +51,17 @@ function safeHttpUrl(raw: unknown): string | undefined {
   }
 }
 
-function resolveUsageUrl(baseURL: string, me?: Record<string, unknown>): string | undefined {
+function resolveUsageUrl(
+  baseURL: string,
+  me: Record<string, unknown> | undefined,
+  hasUsageStats: boolean,
+): string | undefined {
   const explicitUsage = safeHttpUrl(me?.usage_url)
   if (explicitUsage) return explicitUsage
-  const portalBase = safeHttpUrl(me?.portal_url) ?? safeHttpUrl(me?.base_url) ?? safeHttpUrl(baseURL)
+  const explicitPortal = safeHttpUrl(me?.portal_url)
+  if (explicitPortal) return `${rootURL(explicitPortal)}/portal#usage`
+  if (!hasUsageStats) return undefined
+  const portalBase = safeHttpUrl(me?.base_url) ?? safeHttpUrl(baseURL)
   return portalBase ? `${rootURL(portalBase)}/portal#usage` : undefined
 }
 
@@ -309,6 +316,13 @@ export async function fetchGatewayUserInfo(
     if (!res.ok) return undefined
     const json = (await res.json()) as unknown
     if (!isRecord(json)) return undefined
+    const monthlyCapUsd = nonNegNum(json.monthly_cap_usd)
+    const settledUsd = nonNegNum(json.settled_usd)
+    const unsettledUsd = nonNegNum(json.unsettled_usd)
+    const effectiveSpendUsd = nonNegNum(json.effective_spend_usd)
+    const remainingUsd = nonNegNum(json.remaining_usd)
+    const hasUsageStats =
+      monthlyCapUsd !== undefined || effectiveSpendUsd !== undefined || remainingUsd !== undefined
     return {
       gatewayName: typeof json.gateway_name === "string" && json.gateway_name.trim() ? json.gateway_name.trim() : undefined,
       email: typeof json.email === "string" && json.email.trim() ? json.email.trim() : undefined,
@@ -317,13 +331,13 @@ export async function fetchGatewayUserInfo(
           ? json.gcp_billing_label.trim()
           : undefined,
       keyName: typeof json.key_name === "string" && json.key_name.trim() ? json.key_name.trim() : undefined,
-      monthlyCapUsd: nonNegNum(json.monthly_cap_usd),
-      settledUsd: nonNegNum(json.settled_usd),
-      unsettledUsd: nonNegNum(json.unsettled_usd),
-      effectiveSpendUsd: nonNegNum(json.effective_spend_usd),
-      remainingUsd: nonNegNum(json.remaining_usd),
+      monthlyCapUsd,
+      settledUsd,
+      unsettledUsd,
+      effectiveSpendUsd,
+      remainingUsd,
       allowed: typeof json.allowed === "boolean" ? json.allowed : undefined,
-      usageUrl: resolveUsageUrl(baseURL, json),
+      usageUrl: resolveUsageUrl(baseURL, json, hasUsageStats),
     }
   } catch {
     return undefined

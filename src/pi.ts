@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import {
   isModelType,
   type ApiKeyAuth,
@@ -20,7 +21,7 @@ import {
   type DiscoveredModel,
   type GatewayUserInfo,
 } from "./core/discovery.js"
-import { formatUserStatusText } from "./core/state.js"
+import { formatUserStatusText, safeHttpUrl } from "./core/state.js"
 
 const PROVIDER_ID = "openai-auto"
 const PROVIDER_NAME = "OpenAI-Compatible (Auto)"
@@ -326,6 +327,26 @@ export function createOpenAIAutoPiProvider(
   return { provider, getUserInfo: () => lastUserInfo }
 }
 
+function formatPiStatus(info?: GatewayUserInfo): string {
+  const text = formatUserStatusText(info)
+  if (!text) return ""
+  const url = safeHttpUrl(info?.usageUrl)
+  if (!url) return text
+  return `${text} · \x1b]8;;${url}\x1b\\Usage ↗\x1b]8;;\x1b\\`
+}
+
+function openExternalUrl(target: string): void {
+  const [cmd, args]: [string, string[]] =
+    process.platform === "darwin"
+      ? ["open", [target]]
+      : process.platform === "win32"
+        ? ["rundll32", ["url.dll,FileProtocolHandler", target]]
+        : ["xdg-open", [target]]
+  spawn(cmd, args, { stdio: "ignore", detached: true, cwd: "/" })
+    .on("error", () => {})
+    .unref()
+}
+
 export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
   let registeredName = PROVIDER_NAME
   let providerRef: Provider<"openai-completions"> | undefined
@@ -340,12 +361,7 @@ export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
   providerRef = provider
   pi.registerProvider(provider)
 
-  const syncStatus = async (ctx: ExtensionContext, forceRefresh = false) => {
-    if (!ctx.hasUI) return
-    if (ctx.model?.provider !== PROVIDER_ID) {
-      ctx.ui.setStatus(PROVIDER_ID, undefined)
-      return
-    }
+  const resolveUserInfo = async (ctx: ExtensionContext, forceRefresh = false): Promise<GatewayUserInfo | undefined> => {
     let info = getUserInfo()
     if (!info || forceRefresh) {
       const auth = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID).catch(() => undefined)
@@ -354,9 +370,33 @@ export default function openaiAutoPiExtension(pi: ExtensionAPI): void {
         updateProviderName(info)
       }
     }
-    const text = formatUserStatusText(info)
+    return info
+  }
+
+  const syncStatus = async (ctx: ExtensionContext, forceRefresh = false) => {
+    if (!ctx.hasUI) return
+    if (ctx.model?.provider !== PROVIDER_ID) {
+      ctx.ui.setStatus(PROVIDER_ID, undefined)
+      return
+    }
+    const info = await resolveUserInfo(ctx, forceRefresh)
+    const text = formatPiStatus(info)
     ctx.ui.setStatus(PROVIDER_ID, text || undefined)
   }
+
+  pi.registerCommand("usage", {
+    description: "Open gateway usage portal in browser",
+    handler: async (_args, ctx) => {
+      const info = await resolveUserInfo(ctx, true)
+      const url = safeHttpUrl(info?.usageUrl)
+      if (!url) {
+        ctx.ui.notify("Usage portal is unavailable for the current server.", "info")
+        return
+      }
+      openExternalUrl(url)
+      ctx.ui.notify(`Opened usage portal: ${url}`, "info")
+    },
+  })
 
   pi.on("session_start", (_event, ctx) => void syncStatus(ctx))
   pi.on("model_select", (_event, ctx) => void syncStatus(ctx))
