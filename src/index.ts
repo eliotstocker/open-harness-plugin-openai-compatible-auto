@@ -10,6 +10,7 @@ import {
   type GatewayUserInfo,
 } from "./core/discovery.js"
 import { saveGatewayStatus } from "./core/state.js"
+import { setupV1 } from "./v1.js"
 
 const PLUGIN_ID = "openai-auto"
 const INTEGRATION_ID = "openai-auto"
@@ -193,7 +194,7 @@ function isTargetProvider(
   return COMPATIBLE_PACKAGES.has(p.package) && typeof settings.baseURL === "string"
 }
 
-export default Plugin.define({
+const plugin = Plugin.define({
   id: PLUGIN_ID,
   async setup(ctx) {
     if (!ctx.provider) return
@@ -429,3 +430,8 @@ export default Plugin.define({
     return () => controller.abort()
   },
 })
+
+export default {
+  ...plugin,
+  server: setupV1,
+}
