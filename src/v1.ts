@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -129,21 +130,64 @@ function authJsonPath(): string {
   return join(dataDir, "opencode", "auth.json")
 }
 
-function readV1AuthStore(): Record<string, unknown> {
-  if (readStr(process.env.OPENCODE_AUTH_CONTENT)) {
-    try {
-      return asRecord(JSON.parse(process.env.OPENCODE_AUTH_CONTENT!))
-    } catch {
-      return {}
-    }
-  }
+function opencodeDbPath(): string {
+  return readStr(process.env.OPENCODE_DB) ?? join(homedir(), ".local", "share", "opencode", "opencode.db")
+}
+
+function readSqliteCredentials(databasePath: string): Record<string, unknown> {
+  if (!existsSync(databasePath)) return {}
   try {
-    const p = authJsonPath()
-    if (!existsSync(p)) return {}
-    return asRecord(JSON.parse(readFileSync(p, "utf8")))
+    const script = `import sqlite3, json, sys
+try:
+    conn = sqlite3.connect(sys.argv[1])
+    cur = conn.cursor()
+    cur.execute("SELECT integration_id, value, active FROM credential WHERE value IS NOT NULL")
+    res = {}
+    for row in cur.fetchall():
+        iid, val, active = row[0], row[1], row[2]
+        if not iid:
+            continue
+        try:
+            parsed = json.loads(val)
+            if active or iid not in res:
+                res[iid] = parsed
+        except Exception:
+            pass
+    print(json.dumps(res))
+except Exception:
+    print("{}")
+`
+    const proc = spawnSync("python3", ["-c", script, databasePath], { encoding: "utf8", timeout: 2000 })
+    if (proc.status === 0 && proc.stdout.trim()) {
+      return asRecord(JSON.parse(proc.stdout.trim()))
+    }
+    return {}
   } catch {
     return {}
   }
+}
+
+function readV1AuthStore(): Record<string, unknown> {
+  const store: Record<string, unknown> = {}
+  if (readStr(process.env.OPENCODE_AUTH_CONTENT)) {
+    try {
+      Object.assign(store, asRecord(JSON.parse(process.env.OPENCODE_AUTH_CONTENT!)))
+    } catch {}
+  }
+  try {
+    const p = authJsonPath()
+    if (existsSync(p)) {
+      Object.assign(store, asRecord(JSON.parse(readFileSync(p, "utf8"))))
+    }
+  } catch {}
+  try {
+    const dbPath = opencodeDbPath()
+    const dbCreds = readSqliteCredentials(dbPath)
+    for (const [k, v] of Object.entries(dbCreds)) {
+      if (!store[k]) store[k] = v
+    }
+  } catch {}
+  return store
 }
 
 function parseV1AuthEntry(entryKey: string, raw: unknown): V1AuthConnection | undefined {
@@ -166,13 +210,16 @@ function parseV1AuthEntry(entryKey: string, raw: unknown): V1AuthConnection | un
   if (rec.type === "oauth") {
     const apiKey = readStr(rec.access)
     if (!apiKey) return undefined
+    const meta = toStringRecord(asRecord(rec.metadata))
     const expires = typeof rec.expires === "number" && Number.isFinite(rec.expires) ? rec.expires : undefined
     return {
       entryKey,
       apiKey,
-      baseURL: readStr(rec.enterpriseUrl),
+      baseURL: readStr(meta.baseURL) ?? readStr(rec.enterpriseUrl),
+      providerID: readStr(meta.providerID),
       refresh: readStr(rec.refresh),
       expires,
+      metadata: meta,
     }
   }
   return undefined
