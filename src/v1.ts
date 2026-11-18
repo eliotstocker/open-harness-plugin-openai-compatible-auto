@@ -1,5 +1,4 @@
-import { spawnSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { PKCE_FLOW, refreshLiteLLMTokens, startLiteLLMInteractive } from "./core/auth.js"
@@ -76,6 +75,10 @@ interface V1AuthHook {
         type: "api"
         label: string
         prompts?: V1Prompt[]
+        authorize?: (inputs?: Record<string, string>) => Promise<
+          | { type: "success"; key?: string; provider?: string; metadata?: Record<string, string> }
+          | { type: "failed" }
+        >
       }
   >
 }
@@ -130,64 +133,37 @@ function authJsonPath(): string {
   return join(dataDir, "opencode", "auth.json")
 }
 
-function opencodeDbPath(): string {
-  return readStr(process.env.OPENCODE_DB) ?? join(homedir(), ".local", "share", "opencode", "opencode.db")
-}
-
-function readSqliteCredentials(databasePath: string): Record<string, unknown> {
-  if (!existsSync(databasePath)) return {}
+function writeV1AuthEntry(id: string, entry: { type: "api"; key: string; metadata?: Record<string, string> }): void {
   try {
-    const script = `import sqlite3, json, sys
-try:
-    conn = sqlite3.connect(sys.argv[1])
-    cur = conn.cursor()
-    cur.execute("SELECT integration_id, value, active FROM credential WHERE value IS NOT NULL")
-    res = {}
-    for row in cur.fetchall():
-        iid, val, active = row[0], row[1], row[2]
-        if not iid:
-            continue
-        try:
-            parsed = json.loads(val)
-            if active or iid not in res:
-                res[iid] = parsed
-        except Exception:
-            pass
-    print(json.dumps(res))
-except Exception:
-    print("{}")
-`
-    const proc = spawnSync("python3", ["-c", script, databasePath], { encoding: "utf8", timeout: 2000 })
-    if (proc.status === 0 && proc.stdout.trim()) {
-      return asRecord(JSON.parse(proc.stdout.trim()))
+    const p = authJsonPath()
+    const dir = join(p, "..")
+    mkdirSync(dir, { recursive: true })
+    let data: Record<string, unknown> = {}
+    if (existsSync(p)) {
+      try {
+        data = asRecord(JSON.parse(readFileSync(p, "utf8")))
+      } catch {}
     }
-    return {}
-  } catch {
-    return {}
-  }
+    data[id] = entry
+    writeFileSync(p, JSON.stringify(data, null, 2), "utf8")
+  } catch {}
 }
 
 function readV1AuthStore(): Record<string, unknown> {
-  const store: Record<string, unknown> = {}
   if (readStr(process.env.OPENCODE_AUTH_CONTENT)) {
     try {
-      Object.assign(store, asRecord(JSON.parse(process.env.OPENCODE_AUTH_CONTENT!)))
-    } catch {}
+      return asRecord(JSON.parse(process.env.OPENCODE_AUTH_CONTENT!))
+    } catch {
+      return {}
+    }
   }
   try {
     const p = authJsonPath()
-    if (existsSync(p)) {
-      Object.assign(store, asRecord(JSON.parse(readFileSync(p, "utf8"))))
-    }
-  } catch {}
-  try {
-    const dbPath = opencodeDbPath()
-    const dbCreds = readSqliteCredentials(dbPath)
-    for (const [k, v] of Object.entries(dbCreds)) {
-      if (!store[k]) store[k] = v
-    }
-  } catch {}
-  return store
+    if (!existsSync(p)) return {}
+    return asRecord(JSON.parse(readFileSync(p, "utf8")))
+  } catch {
+    return {}
+  }
 }
 
 function parseV1AuthEntry(entryKey: string, raw: unknown): V1AuthConnection | undefined {
@@ -327,10 +303,11 @@ export async function setupV1(
   let lastKnownConfig: Record<string, unknown> = {}
 
   const persistV1Auth = async (id: string, apiKey: string, metadata: Record<string, string>) => {
+    writeV1AuthEntry(id, { type: "api", key: apiKey, metadata })
     await input.client?.auth?.set?.({
       path: { id },
       body: { type: "api", key: apiKey, metadata },
-    })
+    }).catch(() => {})
   }
 
   return {
@@ -572,6 +549,19 @@ export async function setupV1(
               placeholder: defaultProviderID,
             },
           ],
+          async authorize(inputs) {
+            const providerID = readStr(inputs?.providerID) ?? defaultProviderID
+            const baseURL = readStr(inputs?.baseURL) ?? readStr(opts.baseURL)
+            return {
+              type: "success",
+              key: "",
+              provider: providerID,
+              metadata: toStringRecord({
+                ...(baseURL ? { baseURL } : {}),
+                providerID,
+              }),
+            }
+          },
         },
       ],
     },
