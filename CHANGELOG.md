@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.4.0...v1.4.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **v1:** read credentials from sqlite db and support oauth metadata ([e8f3128](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/e8f3128654f7234ef701183e8863b270da1e4244))
+
 # [1.4.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.4...v1.4.0) (2026-11-18)
 
 
