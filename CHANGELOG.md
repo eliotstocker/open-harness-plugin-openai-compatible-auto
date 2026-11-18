@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.4...v1.4.0) (2026-11-18)
+
+
+### Features
+
+* add OpenCode V1 plugin compatibility ([df0bd7b](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/df0bd7bf73318735ce1cd82361c70b26755bc220))
+
 ## [1.3.4](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.3.3...v1.3.4) (2026-11-16)
 
 
