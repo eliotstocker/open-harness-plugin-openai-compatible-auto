@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.4.1...v1.4.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **v1:** write and read credentials directly from auth.json instead of sqlite ([342a987](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/commit/342a987f7abba533031a846776ebb273590349b4))
+
 ## [1.4.1](https://github.com/eliotstocker/open-harness-plugin-openai-compatible-auto/compare/v1.4.0...v1.4.1) (2026-11-18)
 
 
